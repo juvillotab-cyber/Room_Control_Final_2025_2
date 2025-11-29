@@ -204,7 +204,7 @@ int main(void)
         write_to_oled(&key, White, 31, 31);
         
         // TODO: TAREA - Descomentar para enviar teclas al sistema de control
-        // room_control_process_key(&room_system, key);
+        room_control_process_key(&room_system, key);
       }
       keypad_interrupt_pin = 0;
     }
