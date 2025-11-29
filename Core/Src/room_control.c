@@ -3,7 +3,7 @@
 #include "ssd1306_fonts.h"
 #include <string.h>
 #include <stdio.h>
-
+//aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 // Default password
 static const char DEFAULT_PASSWORD[] = "1234";
 
@@ -45,6 +45,8 @@ void room_control_init(room_control_t *room) {
     
     // TODO: TAREA - Initialize hardware (door lock, fan PWM, etc.)
     // Ejemplo: HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
+    
 }
 
 void room_control_update(room_control_t *room) {
