@@ -1,10 +1,11 @@
 #include "room_control.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
+#include "sensor.h"
 #include "main.h"
 #include <string.h>
 #include <stdio.h>
-extern uint16_t keypad_interrupt_pin;
+
 // Default password
 static const char DEFAULT_PASSWORD[] = "1234";
 
@@ -12,6 +13,17 @@ static const char DEFAULT_PASSWORD[] = "1234";
 static const float TEMP_THRESHOLD_LOW = 25.0f;
 static const float TEMP_THRESHOLD_MED = 28.0f;  
 static const float TEMP_THRESHOLD_HIGH = 31.0f;
+extern TIM_HandleTypeDef htim3;
+extern ADC_HandleTypeDef hadc1;
+extern adc_sensor_handle_t temp_sensor;
+
+uint32_t pwm_0[1]={0};
+uint32_t pwm_0_10[20];
+uint32_t pwm_10_0[20];
+uint32_t pwm_10_30[40];
+uint32_t pwm_30_10[40];
+uint32_t pwm_30_100[140];
+uint32_t pwm_100_30[140];
 
 // Timeouts in milliseconds
 static const uint32_t INPUT_TIMEOUT_MS = 10000;  // 10 seconds
@@ -45,10 +57,7 @@ void room_control_init(room_control_t *room) {
     room->display_update_needed = true;
     
     // TODO: TAREA - Initialize hardware (door lock, fan PWM, etc.)
-    // Ejemplo: HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
-
-
-    
+    HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
 }
 
 void room_control_update(room_control_t *room) {
@@ -57,22 +66,14 @@ void room_control_update(room_control_t *room) {
     // State machine
     switch (room->current_state) {
         case ROOM_STATE_LOCKED:
-            // TODO: TAREA - Implementar lógica del estado LOCKED
+            room->display_update_needed = true;
             // - Mostrar mensaje "SISTEMA BLOQUEADO" en display
             // - Asegurar que la puerta esté cerrada
             // - Transición a INPUT_PASSWORD cuando se presione una tecla
-            room->door_locked = true;
-            room->display_update_needed = true;
-
-    // Si se presiona una tecla → pasar a INPUT_PASSWORD
-            if (keypad_interrupt_pin != 0)
-            {
-                room_control_clear_input(room);
-                room_control_change_state(room, ROOM_STATE_INPUT_PASSWORD);
-            }
             break;
             
         case ROOM_STATE_INPUT_PASSWORD:
+            room->display_update_needed = true;
             // TODO: TAREA - Implementar lógica de entrada de contraseña
             // - Mostrar asteriscos en pantalla (**)
             // - Manejar timeout (volver a LOCKED después de 10 segundos sin input)
@@ -108,6 +109,7 @@ void room_control_update(room_control_t *room) {
     }
     
     // Update subsystems
+    room_control_update_temperature(room);
     room_control_update_door(room);
     room_control_update_fan(room);
     
@@ -135,6 +137,20 @@ void room_control_process_key(room_control_t *room, char key) {
             // - Verificar si se completaron 4 dígitos
             // - Comparar con contraseña guardada
             // - Cambiar a UNLOCKED o ACCESS_DENIED según resultado
+            if (room->input_index < PASSWORD_LENGTH) {
+                room->input_buffer[room->input_index++] = key;
+            }
+            // Check if password is complete
+            if (room->input_index == PASSWORD_LENGTH) {
+                room->input_buffer[PASSWORD_LENGTH] = '\0';  // Null-terminate
+                if (strcmp(room->input_buffer, room->password) == 0) {
+                    room_control_change_state(room, ROOM_STATE_UNLOCKED);
+                    room_control_clear_input(room);
+                } else {
+                    room_control_change_state(room, ROOM_STATE_ACCESS_DENIED);
+                    room_control_clear_input(room);
+                }
+            }
             break;
             
         case ROOM_STATE_UNLOCKED:
@@ -152,7 +168,9 @@ void room_control_process_key(room_control_t *room, char key) {
     room->display_update_needed = true;
 }
 
-void room_control_set_temperature(room_control_t *room, float temperature) {
+void room_update_temperature(room_control_t *room) {
+    
+    float temperature = temperature_sensor_read(&temp_sensor);
     room->current_temperature = temperature;
     
     // Update fan level automatically if not in manual override
@@ -237,8 +255,27 @@ static void room_control_update_display(room_control_t *room) {
             
         case ROOM_STATE_INPUT_PASSWORD:
             // TODO: Mostrar asteriscos según input_index
-            ssd1306_SetCursor(10, 10);
-            ssd1306_WriteString("CLAVE:", Font_7x10, White);
+            switch (room->input_index)
+            {
+            case 0:
+                ssd1306_SetCursor(10, 10);
+                ssd1306_WriteString("CLAVE: *", Font_7x10, White);
+                break;
+            case 1:
+                ssd1306_SetCursor(10, 10);
+                ssd1306_WriteString("CLAVE: **", Font_7x10, White);
+                break;
+            case 2:
+                ssd1306_SetCursor(10, 10);
+                ssd1306_WriteString("CLAVE: ***", Font_7x10, White);
+                break;  
+            case 3:
+                ssd1306_SetCursor(10, 10);
+                ssd1306_WriteString("CLAVE: ****", Font_7x10, White);
+                break;
+            default:
+                break;
+            }
             // Ejemplo: mostrar asteriscos
             break;
             
@@ -286,6 +323,24 @@ static void room_control_update_fan(room_control_t *room) {
     // Ejemplo:
     // uint32_t pwm_value = (room->current_fan_level * 99) / 100;  // 0-99 para period=99
     // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_value);
+    fan_level_t level = room_control_calculate_fan_level(room->current_temperature);
+    switch (level)
+    {
+    case FAN_LEVEL_OFF:
+        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_0, 1);
+        break;
+    case FAN_LEVEL_LOW:
+        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_0_10, 20);
+        break;
+    case FAN_LEVEL_MED:
+        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_10_30, 40);
+        break;
+    case FAN_LEVEL_HIGH:
+        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_30_100, 140);
+        break;
+    default:
+        break;
+    }
 }
 
 static fan_level_t room_control_calculate_fan_level(float temperature) {
@@ -304,4 +359,53 @@ static fan_level_t room_control_calculate_fan_level(float temperature) {
 static void room_control_clear_input(room_control_t *room) {
     memset(room->input_buffer, 0, sizeof(room->input_buffer));
     room->input_index = 0;
+}
+
+void calculate_pwm_tables(void){
+    uint32_t j=0;
+  for(uint32_t i=0; i<10; i++)
+  {
+    pwm_0_10[j]=i*10;
+    pwm_0_10[j+1]=i*10;
+    j=j+2;
+  }
+  j=0;
+
+  for(uint32_t i=10; i>0; i--)
+  {
+    pwm_10_0[j]=i*10-10;
+    pwm_10_0[j+1]=i*10-10;
+    j=j+2;
+  }
+  j=0;
+  //xx
+  for(uint32_t i=10; i<30; i++)
+  {
+    pwm_10_30[j]=i*10;
+    pwm_10_30[j+1]=i*10;
+    j=j+2;
+  }
+  j=0;
+  for(uint32_t i=30; i>10; i--)
+  {
+    pwm_30_10[j]=i*10-10;
+    pwm_30_10[j+1]=i*10-10;
+    j=j+2;
+  }
+  j=0;
+  //xx
+  for(uint32_t i=30; i<100; i++)
+  {
+    pwm_30_100[j]=i*10;
+    pwm_30_100[j+1]=i*10;
+    j=j+2;
+  }
+  j=0;
+  for(uint32_t i=100; i>30; i--)
+  {
+    pwm_100_30[j]=i*10-10;
+    pwm_100_30[j+1]=i*10-10;
+    j=j+2;
+  }
+  j=0;
 }
