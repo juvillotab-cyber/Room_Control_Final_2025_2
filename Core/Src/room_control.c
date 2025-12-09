@@ -70,6 +70,15 @@ void room_control_update(room_control_t *room) {
             // - Mostrar mensaje "SISTEMA BLOQUEADO" en display
             // - Asegurar que la puerta esté cerrada
             // - Transición a INPUT_PASSWORD cuando se presione una tecla
+            room->door_locked = true;
+            room->display_update_needed = true;
+
+    // Si se presiona una tecla → pasar a INPUT_PASSWORD
+            if (keypad_interrupt_pin != 0)
+            {
+                room_control_clear_input(room);
+                room_control_change_state(room, ROOM_STATE_INPUT_PASSWORD);
+            }
             break;
             
         case ROOM_STATE_INPUT_PASSWORD:
@@ -312,7 +321,9 @@ static void room_control_update_door(room_control_t *room) {
     // Ejemplo usando el pin DOOR_STATUS:
     if (room->door_locked) {
         HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
     } else {
+        HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_SET);
         HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_SET);
     }
 }
