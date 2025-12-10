@@ -70,19 +70,18 @@ void room_control_update(room_control_t *room) {
             // - Mostrar mensaje "SISTEMA BLOQUEADO" en display
             // - Asegurar que la puerta esté cerrada
             // - Transición a INPUT_PASSWORD cuando se presione una tecla
-            room->door_locked = true;
-            room->display_update_needed = true;
+            //room->door_locked = true;
 
-    // Si se presiona una tecla → pasar a INPUT_PASSWORD
-            if (keypad_interrupt_pin != 0)
+            // Si se presiona una tecla → pasar a INPUT_PASSWORD
+            /* if (keypad_interrupt_pin != 0)
             {
                 room_control_clear_input(room);
                 room_control_change_state(room, ROOM_STATE_INPUT_PASSWORD);
             }
-            break;
+            break; */
             
         case ROOM_STATE_INPUT_PASSWORD:
-            room->display_update_needed = true;
+            //room->display_update_needed = true;
             // TODO: TAREA - Implementar lógica de entrada de contraseña
             // - Mostrar asteriscos en pantalla (**)
             // - Manejar timeout (volver a LOCKED después de 10 segundos sin input)
@@ -121,11 +120,8 @@ void room_control_update(room_control_t *room) {
     room_control_update_temperature(room);
     room_control_update_door(room);
     room_control_update_fan(room);
-    
-    if (room->display_update_needed) {
-        room_control_update_display(room);
-        room->display_update_needed = false;
-    }
+    room_control_update_display(room);
+        
 }
 
 void room_control_process_key(room_control_t *room, char key) {
