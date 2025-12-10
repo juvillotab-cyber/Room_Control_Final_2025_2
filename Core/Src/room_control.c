@@ -10,24 +10,28 @@
 static const char DEFAULT_PASSWORD[] = "1234";
 
 // Temperature thresholds for automatic fan control
-static const float TEMP_THRESHOLD_LOW = 25.0f;
-static const float TEMP_THRESHOLD_MED = 28.0f;  
+static const float TEMP_THRESHOLD_LOW = 20.0f;
+static const float TEMP_THRESHOLD_MED = 24.0f;  
 static const float TEMP_THRESHOLD_HIGH = 31.0f;
 extern TIM_HandleTypeDef htim3;
 extern ADC_HandleTypeDef hadc1;
+extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart2;
 extern adc_sensor_handle_t temp_sensor;
+extern uint32_t finish_pwm;
 
 uint32_t pwm_0[1]={0};
-uint32_t pwm_0_10[20];
-uint32_t pwm_10_0[20];
-uint32_t pwm_10_30[40];
-uint32_t pwm_30_10[40];
-uint32_t pwm_30_100[140];
-uint32_t pwm_100_30[140];
+uint32_t pwm_0_30[60];
+uint32_t pwm_30_0[60];
+uint32_t pwm_30_70[80];
+uint32_t pwm_70_30[80];
+uint32_t pwm_70_100[60];
+uint32_t pwm_100_70[60];
 
 // Timeouts in milliseconds
 static const uint32_t INPUT_TIMEOUT_MS = 10000;  // 10 seconds
 static const uint32_t ACCESS_DENIED_TIMEOUT_MS = 3000;  // 3 seconds
+volatile uint32_t state=0;
 
 // Private function prototypes
 static void room_control_change_state(room_control_t *room, room_state_t new_state);
@@ -52,9 +56,11 @@ void room_control_init(room_control_t *room) {
     room->current_temperature = 22.0f;  // Default room temperature
     room->current_fan_level = FAN_LEVEL_OFF;
     room->manual_fan_override = false;
-    
+    room->star_force_time=0;
+    room->access_denied=false;
     // Display
     room->display_update_needed = true;
+    room->fan_force=false;
     
     // TODO: TAREA - Initialize hardware (door lock, fan PWM, etc.)
     HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_RESET);
@@ -65,19 +71,23 @@ void room_control_update(room_control_t *room) {
     
     // State machine
     switch (room->current_state) {
-
-        case ROOM_STATE_INPUT_PASSWORD:
+        case ROOM_STATE_LOCKED:
+            room->display_update_needed = true;
+            room->door_locked = true;
             
+            break;
+            
+        case ROOM_STATE_INPUT_PASSWORD:
             if (current_time - room->last_input_time > INPUT_TIMEOUT_MS) {
                 room_control_change_state(room, ROOM_STATE_LOCKED);
             }
-            break;           
+            break;
+            
+        case ROOM_STATE_UNLOCKED:
+            room->door_locked = false;
+            break;
             
         case ROOM_STATE_ACCESS_DENIED:
-            // TODO: TAREA - Implementar lógica de acceso denegado
-            // - Mostrar "ACCESO DENEGADO" durante 3 segundos
-            // - Enviar alerta a internet via ESP-01 (nuevo requerimiento)
-            // - Volver automáticamente a LOCKED
             
             if (current_time - room->state_enter_time > ACCESS_DENIED_TIMEOUT_MS) {
                 room_control_change_state(room, ROOM_STATE_LOCKED);
@@ -85,7 +95,7 @@ void room_control_update(room_control_t *room) {
             break;
             
         case ROOM_STATE_EMERGENCY:
-            // TODO: TAREA - Implementar lógica de emergencia (opcional)
+            
             break;
     }
     
@@ -127,6 +137,7 @@ void room_control_process_key(room_control_t *room, char key) {
                     room_control_clear_input(room);
                 } else {
                     room_control_change_state(room, ROOM_STATE_ACCESS_DENIED);
+                    room->access_denied=true;
                     room_control_clear_input(room);
                 }
             }
@@ -162,10 +173,28 @@ void room_control_update_temperature(room_control_t *room) {
     }
 }
 
-void room_control_force_fan_level(room_control_t *room, fan_level_t level) {
-    room->manual_fan_override = true;
-    room->current_fan_level = level;
-    room->display_update_needed = true;
+void room_control_force_fan_level(room_control_t* room, fan_level_t* level) {
+    switch ((int)level)
+    {
+    case 0:
+        HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_0,1);      
+        break;
+    case 30:
+        HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_0_30,60);
+        break;    
+    case 70:
+        HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_30_70,80);
+        break;    
+    case 100:
+        HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_70_100,60);
+        break;
+ 
+    default:
+        break;
+    }
+    finish_pwm=1;
+    room->fan_force=true;
+    room->star_force_time=HAL_GetTick();
 }
 
 void room_control_change_password(room_control_t *room, const char *new_password) {
@@ -183,8 +212,8 @@ bool room_control_is_door_locked(room_control_t *room) {
     return room->door_locked;
 }
 
-fan_level_t room_control_get_fan_level(room_control_t *room) {
-    return room->current_fan_level;
+int room_control_get_fan_level(void) {
+    return (TIM3->CCR1)/10;
 }
 
 float room_control_get_temperature(room_control_t *room) {
@@ -263,11 +292,11 @@ static void room_control_update_display(room_control_t *room) {
             ssd1306_SetCursor(10, 10);
             ssd1306_WriteString("ACCESO OK", Font_7x10, White);
             
-            snprintf(display_buffer, sizeof(display_buffer), "Temp: %.1fC", room->current_temperature);
+            snprintf(display_buffer, sizeof(display_buffer), "Temp: %d.%dC", (int)room->current_temperature,(int)(room->current_temperature*100)%100);
             ssd1306_SetCursor(10, 25);
             ssd1306_WriteString(display_buffer, Font_7x10, White);
             
-            snprintf(display_buffer, sizeof(display_buffer), "Fan: %d%%", room->current_fan_level);
+            snprintf(display_buffer, sizeof(display_buffer), "Fan: %d%%", (int)(TIM3->CCR1)/10);
             ssd1306_SetCursor(10, 40);
             ssd1306_WriteString(display_buffer, Font_7x10, White);
             break;
@@ -277,6 +306,11 @@ static void room_control_update_display(room_control_t *room) {
             ssd1306_WriteString("ACCESO", Font_7x10, White);
             ssd1306_SetCursor(10, 25);
             ssd1306_WriteString("DENEGADO", Font_7x10, White);
+            if (room->access_denied==true){
+                HAL_UART_Transmit(&huart3,(uint8_t*)"ACCESO DENEGADO\r\n",strlen("ACCESO DENEGADO\r\n"),100);
+                HAL_UART_Transmit(&huart2,(uint8_t*)"ACCESO DENEGADO\r\n",strlen("ACCESO DENEGADO\r\n"),100);
+                room->access_denied=false;
+            }
             break;
             
         default:
@@ -304,28 +338,48 @@ void delay_ms(uint32_t ms){
 }
 
 static void room_control_update_fan(room_control_t *room) {
-    // TODO: TAREA - Implementar control PWM del ventilador
-    // Calcular valor PWM basado en current_fan_level
-    // Ejemplo:
-    // uint32_t pwm_value = (room->current_fan_level * 99) / 100;  // 0-99 para period=99
-    // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_value);
-    fan_level_t level = room_control_calculate_fan_level(room->current_temperature);
-    switch (level)
-    {
-    case FAN_LEVEL_OFF:
-        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_0, 1);
-        break;
-    case FAN_LEVEL_LOW:
-        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_0_10, 20);
-        break;
-    case FAN_LEVEL_MED:
-        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_10_30, 40);
-        break;
-    case FAN_LEVEL_HIGH:
-        HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (const uint32_t *)pwm_30_100, 140);
-        break;
-    default:
-        break;
+    uint32_t start_fan_time=HAL_GetTick();
+    if (room->fan_force==true){
+        if (start_fan_time-room->star_force_time>5000){
+            finish_pwm=0;
+            room->fan_force=false;
+        }
+    }
+    uint32_t level=room->current_temperature;
+    if (finish_pwm==0){
+        if (level<=TEMP_THRESHOLD_LOW){
+            if (state>0){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_30_0,60);
+                finish_pwm=1;
+                state=0;
+            }
+        }else if ((level>TEMP_THRESHOLD_LOW) && (level<TEMP_THRESHOLD_MED)){ 
+            if (state<1){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_0_30,60);
+                finish_pwm=1;
+                state=1;
+            }else if(state>1){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_70_30,80);
+                finish_pwm=1;
+                state=1;
+            }
+        }else if((level>=TEMP_THRESHOLD_MED) && (level<TEMP_THRESHOLD_HIGH)){
+            if (state<2){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_30_70,80);
+                finish_pwm=1;
+                state=2;
+            }else if(state>2){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_100_70,60);
+                finish_pwm=1;
+                state=2;
+            }
+        }else if((level>=TEMP_THRESHOLD_HIGH)){
+            if (state<3){
+                HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_70_100,60);
+                finish_pwm=1;
+                state=3;
+            }
+        }
     }
 }
 
@@ -349,48 +403,48 @@ static void room_control_clear_input(room_control_t *room) {
 
 void calculate_pwm_tables(void){
     uint32_t j=0;
-  for(uint32_t i=0; i<10; i++)
+  for(uint32_t i=0; i<30; i++)
   {
-    pwm_0_10[j]=i*10;
-    pwm_0_10[j+1]=i*10;
+    pwm_0_30[j]=i*10;
+    pwm_0_30[j+1]=i*10;
     j=j+2;
   }
   j=0;
 
-  for(uint32_t i=10; i>0; i--)
+  for(uint32_t i=30; i>0; i--)
   {
-    pwm_10_0[j]=i*10-10;
-    pwm_10_0[j+1]=i*10-10;
+    pwm_30_0[j]=i*10-10;
+    pwm_30_0[j+1]=i*10-10;
     j=j+2;
   }
   j=0;
   //xx
-  for(uint32_t i=10; i<30; i++)
+  for(uint32_t i=30; i<70; i++)
   {
-    pwm_10_30[j]=i*10;
-    pwm_10_30[j+1]=i*10;
+    pwm_30_70[j]=i*10;
+    pwm_30_70[j+1]=i*10;
     j=j+2;
   }
   j=0;
-  for(uint32_t i=30; i>10; i--)
+  for(uint32_t i=70; i>30; i--)
   {
-    pwm_30_10[j]=i*10-10;
-    pwm_30_10[j+1]=i*10-10;
+    pwm_70_30[j]=i*10-10;
+    pwm_70_30[j+1]=i*10-10;
     j=j+2;
   }
   j=0;
   //xx
-  for(uint32_t i=30; i<100; i++)
+  for(uint32_t i=70; i<100; i++)
   {
-    pwm_30_100[j]=i*10;
-    pwm_30_100[j+1]=i*10;
+    pwm_70_100[j]=i*10;
+    pwm_70_100[j+1]=i*10;
     j=j+2;
   }
   j=0;
-  for(uint32_t i=100; i>30; i--)
+  for(uint32_t i=100; i>70; i--)
   {
-    pwm_100_30[j]=i*10-10;
-    pwm_100_30[j+1]=i*10-10;
+    pwm_100_70[j]=i*10-10;
+    pwm_100_70[j+1]=i*10-10;
     j=j+2;
   }
   j=0;

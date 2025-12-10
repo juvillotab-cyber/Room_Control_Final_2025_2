@@ -30,6 +30,7 @@ typedef struct {
     uint8_t input_index;
     uint32_t last_input_time;
     uint32_t state_enter_time;
+    uint32_t star_force_time;
     
     // Door control
     bool door_locked;
@@ -39,9 +40,11 @@ typedef struct {
     fan_level_t current_fan_level;
     bool manual_fan_override;
     uint32_t fan_state;
+    bool access_denied;
     
     // Display update flags
     bool display_update_needed;
+    bool fan_force;
 } room_control_t;
 
 // Public functions
@@ -49,7 +52,7 @@ void room_control_init(room_control_t *room);
 void room_control_update(room_control_t *room);
 void room_control_process_key(room_control_t *room, char key);
 void room_control_update_temperature(room_control_t *room);
-void room_control_force_fan_level(room_control_t *room, fan_level_t level);
+void room_control_force_fan_level(room_control_t *room,fan_level_t*level);
 void room_control_change_password(room_control_t *room, const char *new_password);
 
 void calculate_pwm_tables(void);
@@ -58,7 +61,7 @@ void delay_ms(uint32_t ms);
 // Status getters
 room_state_t room_control_get_state(room_control_t *room);
 bool room_control_is_door_locked(room_control_t *room);
-fan_level_t room_control_get_fan_level(room_control_t *room);
+int room_control_get_fan_level(void);
 float room_control_get_temperature(room_control_t *room);
 
 #endif

@@ -12,7 +12,7 @@
 #define BETA 3200.0f
 #define TEMPERATURE_25_K 298.15f
 #define R_THERMISTOR_25 10000.0f
-#define R_DIVISOR 9870.0f
+#define R_DIVISOR 9900.0f
 
 typedef struct {
     ADC_HandleTypeDef *hadc;

@@ -27,7 +27,7 @@
 #include "room_control.h"
 #include "sensor.h"
 #include <stdio.h>
-
+#include <string.h>
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 
@@ -57,11 +57,15 @@ TIM_HandleTypeDef htim3;
 DMA_HandleTypeDef hdma_tim3_ch1_trig;
 
 UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 adc_sensor_handle_t temp_sensor = { .hadc = &hadc1, .channel = ADC_CHANNEL_5 };
+uint32_t finish_pwm=0;
 
 uint8_t button_pressed = 0; // Flag to indicate if the button is pressed
+
+uint8_t usart_2_rxbyte = 0; // Variable to hold received byte from UART3
 
 led_handle_t heartbeat_led = {
     .port = LD2_GPIO_Port,
@@ -74,7 +78,6 @@ led_handle_t door_led = {
 };
 // Initialize door_led to RESET
 
-uint8_t usart_2_rxbyte = 0; // Variable to hold received byte from UART3
 
 keypad_handle_t keypad = {
     .row_ports = {KEYPAD_R1_GPIO_Port, KEYPAD_R2_GPIO_Port, KEYPAD_R3_GPIO_Port, KEYPAD_R4_GPIO_Port},
@@ -85,6 +88,12 @@ keypad_handle_t keypad = {
 
 #define KEYPAD_BUFFER_LEN 16
 #define REFFRESH_TIME 100
+#define RX_BUFFER_SIZE 200
+
+volatile uint8_t rx3_byte;                // Byte temporal para recibir
+char rx3_buffer[RX_BUFFER_SIZE]; // Buffer completo
+uint8_t rx3_index = 0;           // Posición actual
+uint8_t cmd_wifi_ready = 0;      // Bandera (1 = llegó comando, 0 = esperando)
 
 uint8_t keypad_buffer[KEYPAD_BUFFER_LEN];
 ring_buffer_t keypad_rb;
@@ -104,6 +113,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -137,11 +147,150 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim){
+  if (htim->Instance==TIM3){
+    finish_pwm=0;
+  } 
+}
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == USART2) {
-    HAL_UART_Receive_IT(&huart2, &usart_2_rxbyte, 1);
+    if (rx3_byte == '\n' || rx3_byte == '\r') {
+      rx3_buffer[rx3_index] = '\0';
+      cmd_wifi_ready = 1;
+      rx3_index = 0;
+    } 
+    else {
+      if (rx3_index < RX_BUFFER_SIZE - 1) {
+        rx3_buffer[rx3_index++] = rx3_byte;
+      }
+    }
+    
+    if (rx3_index >= RX_BUFFER_SIZE - 1) {
+        rx3_index = 0; 
+        memset(rx3_buffer, 0, RX_BUFFER_SIZE);
+  
+    }
+
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx3_byte, 1);
   }
+  if (huart->Instance == USART3) {
+    
+    // 1. Detectar fin de comando válido
+    if (rx3_byte == '\n' || rx3_byte == '\r') {
+      rx3_buffer[rx3_index] = '\0';
+      cmd_wifi_ready = 1;
+      rx3_index = 0;
+    } 
+    else {
+      if (rx3_index < RX_BUFFER_SIZE - 1) {
+        rx3_buffer[rx3_index++] = rx3_byte;
+      }
+    }
+
+    if (rx3_index >= RX_BUFFER_SIZE - 1) {
+        rx3_index = 0; // Borrón y cuenta nueva
+        memset(rx3_buffer, 0, RX_BUFFER_SIZE);
+  
+    }
+
+    HAL_UART_Receive_IT(&huart3, (uint8_t*)&rx3_byte, 1);
+  }
+}
+
+void Procesar_Comandos_WiFi(void) {
+    // Si no ha llegado nada completo, salimos inmediatamente
+    if (cmd_wifi_ready == 0) return;
+
+    char respuesta[100]; // Buffer para armar la respuesta
+    
+    for (uint32_t i = 0; i < RX_BUFFER_SIZE; i++){
+      rx3_buffer[i] = rx3_buffer[i+1];
+    }
+    printf("\r\nComando recibido\r\n");
+    
+    // -----------------------------------------------------------
+    // COMANDO 1: GET_TEMP (Pedir temperatura)
+    // -----------------------------------------------------------
+
+
+    if (strstr(rx3_buffer, "ET_TEMP") != NULL) {
+
+        float temp = room_control_get_temperature(&room_system);
+        
+        // Armar respuesta: "TEMP:25.50"
+        sprintf(respuesta,"Temperatura: %d.%dC\r\n", (int)temp,(int)(temp*100)%100);
+        
+        // Enviar al WiFi (ESP-01)
+        HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
+        
+        // Debug en PC
+        printf("Respondiendo: %s", respuesta);
+    }
+
+    // -----------------------------------------------------------
+    // COMANDO 2: GET_STATUS (Pedir estado del sistema)
+    // -----------------------------------------------------------
+    else if (strstr(rx3_buffer, "ET_STATUS") != NULL) {
+        room_state_t state = room_control_get_state(&room_system);
+        int fan = room_control_get_fan_level();
+        float temp = room_control_get_temperature(&room_system);
+        // Convertir enum a texto simple
+        char *estado_txt = (state == ROOM_STATE_LOCKED) ? "BLOQUEADO" : "DESBLOQUEADO";
+        if (state == ROOM_STATE_UNLOCKED){
+          sprintf(respuesta, "ESTADO: %s FAN: %d TEMPERATURA: %d.%dC\r\n", estado_txt, fan,(int)temp,(int)(temp*100)%100);
+        
+          HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
+          printf("Respondiendo: %s", respuesta);
+        }else{
+          sprintf(respuesta, "ESTADO: %s\r\n", estado_txt);
+        
+          HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
+          printf("Respondiendo: %s", respuesta);
+        }
+    }
+
+    // -----------------------------------------------------------
+    // COMANDO 3: FORCE_FAN:N (Forzar ventilador 0-3)
+    // -----------------------------------------------------------
+    else if (strncmp(rx3_buffer, "ORCE_FAN:", 9) == 0) {
+        // El número está en la posición 10 (después de los dos puntos)
+        int nivel = rx3_buffer[9] - '0'; // Truco ASCII para convertir char a int
+        room_control_force_fan_level(&room_system,(fan_level_t*)nivel);
+            room_control_force_fan_level(&room_system,(fan_level_t*)nivel);
+            
+            sprintf(respuesta, "OK: FAN LEVEL %d\r\n", nivel);
+            HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
+            printf("Accion ejecutada: Fan a %d\r\n", nivel);
+        
+
+    }
+    
+    // -----------------------------------------------------------
+    // COMANDO 4: SET_PASS:XXXX (Cambiar contraseña)
+    // -----------------------------------------------------------
+    else if (strncmp(rx3_buffer, "ET_PASS:", 8) == 0) {
+        // El password empieza en la posición 9
+        char *nuevo_pass = rx3_buffer + 8;
+        
+        // Validación básica de longitud
+        if (strlen(nuevo_pass) >= 4) {
+             room_control_change_password(&room_system, nuevo_pass);
+             
+             HAL_UART_Transmit(&huart3, (uint8_t*)"OK: PASS CAMBIADO\r\n", 19, 100);
+             printf("Password actualizado remotamente\r\n");
+        }
+    }
+    
+    else {
+        printf("Comando desconocido.\r\n");
+    }
+
+    // -----------------------------------------------------------
+    // LIMPIEZA FINAL
+    // -----------------------------------------------------------
+    cmd_wifi_ready = 0;                // Bajamos la bandera
+    memset(rx3_buffer, 0, RX_BUFFER_SIZE); // Limpiamos el buffer por seguridad
 }
 
 void heartbeat(void)
@@ -189,11 +338,13 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM3_Init();
   MX_ADC1_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   led_init(&heartbeat_led);
   led_init(&door_led);
   ssd1306_Init();
-  HAL_UART_Receive_IT(&huart2, &usart_2_rxbyte, 1);
+  HAL_UART_Receive_IT(&huart2, (uint8_t*)&usart_2_rxbyte, 1);
+  HAL_UART_Receive_IT(&huart3,(uint8_t*)&rx3_byte,1);
   
   ring_buffer_init(&keypad_rb, keypad_buffer, KEYPAD_BUFFER_LEN);
   keypad_init(&keypad);
@@ -209,11 +360,13 @@ int main(void)
   // Clear the display
   ssd1306_Fill(Black);
   write_to_oled("Bienvenido!", White, 17, 17);
+  printf("Bienvenido!\r\n");
   delay_ms(1000);
-  printf("Hello, 4100901!\r\n");
+  calculate_pwm_tables();
+  
   while (1) {
     heartbeat(); // Call the heartbeat function to toggle the LED
-
+    Procesar_Comandos_WiFi();
     // TODO: TAREA - Descomentar cuando implementen la máquina de estados
     room_control_update(&room_system);
 
@@ -221,7 +374,7 @@ int main(void)
     if (keypad_interrupt_pin != 0) {
       char key = keypad_scan(&keypad, keypad_interrupt_pin);
       if (key != '\0') {
-        write_to_oled(&key, White, 31, 31);
+        //write_to_oled(&key, White, 31, 31);
         
         // TODO: TAREA - Descomentar para enviar teclas al sistema de control
         room_control_process_key(&room_system, key);
@@ -387,7 +540,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x10909CEC;
+  hi2c1.Init.Timing = 0x10D19CE4;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -438,9 +591,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 8000 - 1;
+  htim3.Init.Prescaler = 799;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 100 - 1;
+  htim3.Init.Period = 999;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
@@ -504,6 +657,41 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -514,7 +702,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
 
 }
