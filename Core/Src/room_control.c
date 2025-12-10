@@ -65,40 +65,13 @@ void room_control_update(room_control_t *room) {
     
     // State machine
     switch (room->current_state) {
-        case ROOM_STATE_LOCKED:
-            room->display_update_needed = true;
-            // - Mostrar mensaje "SISTEMA BLOQUEADO" en display
-            // - Asegurar que la puerta esté cerrada
-            // - Transición a INPUT_PASSWORD cuando se presione una tecla
-            //room->door_locked = true;
 
-            // Si se presiona una tecla → pasar a INPUT_PASSWORD
-            /* if (keypad_interrupt_pin != 0)
-            {
-                room_control_clear_input(room);
-                room_control_change_state(room, ROOM_STATE_INPUT_PASSWORD);
-            }
-            break; */
-            
         case ROOM_STATE_INPUT_PASSWORD:
-            //room->display_update_needed = true;
-            // TODO: TAREA - Implementar lógica de entrada de contraseña
-            // - Mostrar asteriscos en pantalla (**)
-            // - Manejar timeout (volver a LOCKED después de 10 segundos sin input)
-            // - Verificar contraseña cuando se ingresen 4 dígitos
             
-            // Example timeout logic:
             if (current_time - room->last_input_time > INPUT_TIMEOUT_MS) {
                 room_control_change_state(room, ROOM_STATE_LOCKED);
             }
-            break;
-            
-        case ROOM_STATE_UNLOCKED:
-            // TODO: TAREA - Implementar lógica del estado UNLOCKED  
-            // - Mostrar "ACCESO CONCEDIDO" y temperatura
-            // - Mantener puerta abierta
-            // - Permitir comandos de control manual
-            break;
+            break;           
             
         case ROOM_STATE_ACCESS_DENIED:
             // TODO: TAREA - Implementar lógica de acceso denegado
@@ -121,6 +94,7 @@ void room_control_update(room_control_t *room) {
     room_control_update_door(room);
     room_control_update_fan(room);
     room_control_update_display(room);
+    delay_ms(100);  
         
 }
 
@@ -262,19 +236,19 @@ static void room_control_update_display(room_control_t *room) {
             // TODO: Mostrar asteriscos según input_index
             switch (room->input_index)
             {
-            case 0:
+            case 1:
                 ssd1306_SetCursor(10, 10);
                 ssd1306_WriteString("CLAVE: *", Font_7x10, White);
                 break;
-            case 1:
+            case 2:
                 ssd1306_SetCursor(10, 10);
                 ssd1306_WriteString("CLAVE: **", Font_7x10, White);
                 break;
-            case 2:
+            case 3:
                 ssd1306_SetCursor(10, 10);
                 ssd1306_WriteString("CLAVE: ***", Font_7x10, White);
                 break;  
-            case 3:
+            case 4:
                 ssd1306_SetCursor(10, 10);
                 ssd1306_WriteString("CLAVE: ****", Font_7x10, White);
                 break;
@@ -322,6 +296,11 @@ static void room_control_update_door(room_control_t *room) {
         HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_SET);
         HAL_GPIO_WritePin(DOOR_STATUS_GPIO_Port, DOOR_STATUS_Pin, GPIO_PIN_SET);
     }
+}
+
+void delay_ms(uint32_t ms){
+  uint32_t start = HAL_GetTick();
+  while(HAL_GetTick() - start < ms);
 }
 
 static void room_control_update_fan(room_control_t *room) {

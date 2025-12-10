@@ -53,6 +53,7 @@ void room_control_force_fan_level(room_control_t *room, fan_level_t level);
 void room_control_change_password(room_control_t *room, const char *new_password);
 
 void calculate_pwm_tables(void);
+void delay_ms(uint32_t ms);
 
 // Status getters
 room_state_t room_control_get_state(room_control_t *room);
