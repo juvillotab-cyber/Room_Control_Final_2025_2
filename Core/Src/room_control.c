@@ -173,7 +173,7 @@ void room_control_process_key(room_control_t *room, char key) {
     room->display_update_needed = true;
 }
 
-void room_update_temperature(room_control_t *room) {
+void room_control_update_temperature(room_control_t *room) {
     
     float temperature = temperature_sensor_read(&temp_sensor);
     room->current_temperature = temperature;
