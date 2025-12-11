@@ -289,3 +289,7 @@ El sistema de control de sala desarrollado integra de manera eficiente sensado, 
 La lógica central, organizada mediante una máquina de estados, asegura un control claro del acceso, de la puerta y del ventilador, mientras que el sensor NTC proporciona mediciones confiables que permiten ajustar automáticamente la ventilación. La inclusión del módulo ESP01 añade capacidades de control remoto, ampliando el alcance del sistema y permitiendo futuras integraciones IoT.
 
 En conjunto, el proyecto demuestra una integración correcta de hardware y software, logrando una solución robusta, funcional y escalable para el control inteligente de una sala.
+
+
+# 7. Video demostrativo - Funcionamiento de Dashboard (Node-RED)
+Link - Youtube: https://youtu.be/DbfoEAb-rX4?si=t2fPlXAObiiwzrSR

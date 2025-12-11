@@ -241,7 +241,7 @@ void Procesar_Comandos_WiFi(void) {
         int fan = room_control_get_fan_level();
         float temp = room_control_get_temperature(&room_system);
         // Convertir enum a texto simple
-        char *estado_txt = (state == ROOM_STATE_LOCKED) ? "BLOQUEADO" : "DESBLOQUEADO";
+        char *estado_txt = (state != ROOM_STATE_UNLOCKED) ? "BLOQUEADO" : "DESBLOQUEADO";
         if (state == ROOM_STATE_UNLOCKED){
           sprintf(respuesta, "ESTADO: %s FAN: %d TEMPERATURA: %d.%dC\r\n", estado_txt, fan,(int)temp,(int)(temp*100)%100);
         

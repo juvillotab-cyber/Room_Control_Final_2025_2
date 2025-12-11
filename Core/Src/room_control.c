@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 // Default password
-static const char DEFAULT_PASSWORD[] = "1234";
+static const char DEFAULT_PASSWORD[] = "1111";
 
 // Temperature thresholds for automatic fan control
 static const float TEMP_THRESHOLD_LOW = 25.0f;
@@ -408,7 +408,7 @@ void calculate_pwm_tables(void){
     pwm_0_30[j+1]=i*10;
     j=j+2;
   }
-  j=0;
+  j=0;  
   pwm_0_30[59]=300;
 
   for(uint32_t i=30; i>0; i--)
