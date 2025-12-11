@@ -117,7 +117,7 @@ Los estados definidos son:
 - `ROOM_STATE_INPUT_PASSWORD`
 - `ROOM_STATE_UNLOCKED`
 - `ROOM_STATE_ACCESS_DENIED`
-- `ROOM_STATE_EMERGENCY`
+
 
 ---
 
@@ -130,7 +130,7 @@ Los estados definidos son:
 
 **Transiciones:**
 - `INPUT_PASSWORD` si se detecta digitación válida.
-- `EMERGENCY` si llega un comando remoto especial.
+
 
 ---
 
@@ -167,13 +167,6 @@ En este estado:
 - Se muestra mensaje de acceso negado.
 - Después de un intervalo configurable, regresa a `LOCKED`.
 
----
-
-## 3.2.6 Estado: **EMERGENCY**
-
-- La puerta se abre inmediatamente.
-- El ventilador puede activarse dependiendo del último comando recibido.
-- La OLED muestra estado de emergencia.
 
 ---
 
