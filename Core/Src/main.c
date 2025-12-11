@@ -267,8 +267,6 @@ void Procesar_Comandos_WiFi(void) {
         sprintf(respuesta, "OK: FAN LEVEL %d\r\n", nivel);
         HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
         printf("Accion ejecutada: Fan a %d\r\n", nivel);
-        
-
     }
     
     // -----------------------------------------------------------

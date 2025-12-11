@@ -10,9 +10,9 @@
 static const char DEFAULT_PASSWORD[] = "1234";
 
 // Temperature thresholds for automatic fan control
-static const float TEMP_THRESHOLD_LOW = 20.0f;
-static const float TEMP_THRESHOLD_MED = 24.0f;  
-static const float TEMP_THRESHOLD_HIGH = 31.0f;
+static const float TEMP_THRESHOLD_LOW = 25.0f;
+static const float TEMP_THRESHOLD_MED = 30.0f;  
+static const float TEMP_THRESHOLD_HIGH = 40.0f;
 extern TIM_HandleTypeDef htim3;
 extern ADC_HandleTypeDef hadc1;
 extern UART_HandleTypeDef huart3;
@@ -339,7 +339,7 @@ void delay_ms(uint32_t ms){
 static void room_control_update_fan(room_control_t *room) {
     uint32_t start_fan_time=HAL_GetTick();
     if (room->fan_force==true){
-        if (start_fan_time-room->star_force_time>5000){
+        if (room->star_force_time-start_fan_time>5000){
             finish_pwm=0;
             room->fan_force=false;
         }
@@ -409,6 +409,7 @@ void calculate_pwm_tables(void){
     j=j+2;
   }
   j=0;
+  pwm_0_30[59]=300;
 
   for(uint32_t i=30; i>0; i--)
   {
@@ -425,6 +426,7 @@ void calculate_pwm_tables(void){
     j=j+2;
   }
   j=0;
+  pwm_30_70[79]=700;
   for(uint32_t i=70; i>30; i--)
   {
     pwm_70_30[j]=i*10-10;
@@ -440,6 +442,7 @@ void calculate_pwm_tables(void){
     j=j+2;
   }
   j=0;
+  pwm_70_100[59]=1000;
   for(uint32_t i=100; i>70; i--)
   {
     pwm_100_70[j]=i*10-10;
