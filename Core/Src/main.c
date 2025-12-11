@@ -101,7 +101,7 @@ ring_buffer_t keypad_rb;
 
 
 volatile uint16_t keypad_interrupt_pin = 0;
-
+uint32_t last_dash_tick = 0; // Para envío periódico al dashboard
 // Room control system instance
 room_control_t room_system;
 /* USER CODE END PV */
@@ -295,6 +295,31 @@ void Procesar_Comandos_WiFi(void) {
     memset(rx3_buffer, 0, RX_BUFFER_SIZE); // Limpiamos el buffer por seguridad
 }
 
+void Send_Dashboard_Frame(void) // Enviar trama periódica al dashboard (zona de funciones de usuario)
+{
+    // Leer datos actuales del sistema
+    float temp = room_control_get_temperature(&room_system);
+    room_state_t state = room_control_get_state(&room_system);
+    int fan = room_control_get_fan_level();
+
+    const char *state_txt = (state != ROOM_STATE_UNLOCKED) ? "LOCKED" : "UNLOCKED";
+
+
+    // Construir texto: T=25.50;STATE=UNLOCKED;FAN=2\r\n
+    char buf[64];
+    int temp_int = (int)temp;
+    int temp_dec = (int)(temp * 100.0f) % 100;  // dos decimales
+
+    sprintf(buf, "T=%d.%02d;STATE=%s;FAN=%d\r\n",
+            temp_int,
+            temp_dec,
+            state_txt,
+            fan);
+
+    // Enviar por UART3 hacia el ESP01
+    HAL_UART_Transmit(&huart3, (uint8_t*)buf, strlen(buf), 10);
+}
+
 void heartbeat(void)
 {
   static uint32_t last_toggle = 0;
@@ -382,6 +407,13 @@ int main(void)
         room_control_process_key(&room_system, key);
       }
       keypad_interrupt_pin = 0;
+    }
+      // --- NUEVO: envío periódico al dashboard cada 1000 ms ---
+    uint32_t now = HAL_GetTick();
+    if (now - last_dash_tick >= 500) { // cada 0.5 segundoS
+        last_dash_tick = now;
+        Send_Dashboard_Frame();
+        
     }
 
     // DEMO: Button functionality - Remove when implementing room control logic  
