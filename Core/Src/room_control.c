@@ -103,8 +103,7 @@ void room_control_update(room_control_t *room) {
     room_control_update_temperature(room);
     room_control_update_door(room);
     room_control_update_fan(room);
-    room_control_update_display(room);
-    delay_ms(100);  
+    room_control_update_display(room); 
         
 }
 
@@ -173,19 +172,19 @@ void room_control_update_temperature(room_control_t *room) {
     }
 }
 
-void room_control_force_fan_level(room_control_t* room, fan_level_t* level) {
-    switch ((int)level)
+void room_control_force_fan_level(room_control_t* room, int level) {
+    switch (level)
     {
     case 0:
         HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_0,1);      
         break;
-    case 30:
+    case 1:
         HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_0_30,60);
         break;    
-    case 70:
+    case 2:
         HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_30_70,80);
         break;    
-    case 100:
+    case 3:
         HAL_TIM_PWM_Start_DMA(&htim3,TIM_CHANNEL_1,pwm_70_100,60);
         break;
  

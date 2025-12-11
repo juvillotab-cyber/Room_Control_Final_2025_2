@@ -52,7 +52,7 @@ void room_control_init(room_control_t *room);
 void room_control_update(room_control_t *room);
 void room_control_process_key(room_control_t *room, char key);
 void room_control_update_temperature(room_control_t *room);
-void room_control_force_fan_level(room_control_t *room,fan_level_t*level);
+void room_control_force_fan_level(room_control_t *room,int level);
 void room_control_change_password(room_control_t *room, const char *new_password);
 
 void calculate_pwm_tables(void);

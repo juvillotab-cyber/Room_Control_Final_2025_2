@@ -66,6 +66,7 @@ uint32_t finish_pwm=0;
 uint8_t button_pressed = 0; // Flag to indicate if the button is pressed
 
 uint8_t usart_2_rxbyte = 0; // Variable to hold received byte from UART3
+uint16_t usart2_index = 0; 
 
 led_handle_t heartbeat_led = {
     .port = LD2_GPIO_Port,
@@ -154,35 +155,42 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim){
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  if (huart->Instance == USART2) {
-    if (rx3_byte == '\n' || rx3_byte == '\r') {
-      rx3_buffer[rx3_index] = '\0';
-      cmd_wifi_ready = 1;
-      rx3_index = 0;
+  if (huart->Instance == USART2){
+    if (usart_2_rxbyte == '\n' || usart_2_rxbyte== '\r') {
+      if (usart2_index > 0) {
+
+        rx3_buffer[usart2_index] = '\0';
+        cmd_wifi_ready = 1;
+        usart2_index = 0;
+      }
     } 
     else {
-      if (rx3_index < RX_BUFFER_SIZE - 1) {
-        rx3_buffer[rx3_index++] = rx3_byte;
+      if (usart2_index < RX_BUFFER_SIZE - 1) {
+        rx3_buffer[usart2_index++] = usart_2_rxbyte;
       }
     }
-    
-    if (rx3_index >= RX_BUFFER_SIZE - 1) {
-        rx3_index = 0; 
+
+    if (usart2_index >= RX_BUFFER_SIZE - 1) {
+        usart2_index= 0; // Borrón y cuenta nueva
         memset(rx3_buffer, 0, RX_BUFFER_SIZE);
   
     }
-
-    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx3_byte, 1);
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&usart_2_rxbyte, 1);
   }
+    
   if (huart->Instance == USART3) {
     
     // 1. Detectar fin de comando válido
     if (rx3_byte == '\n' || rx3_byte == '\r') {
-      rx3_buffer[rx3_index] = '\0';
-      cmd_wifi_ready = 1;
-      rx3_index = 0;
+      if (rx3_index > 0) {
+
+          rx3_buffer[rx3_index] = '\0';
+          cmd_wifi_ready = 1;
+          rx3_index = 0;
+      }
     } 
     else {
+
       if (rx3_index < RX_BUFFER_SIZE - 1) {
         rx3_buffer[rx3_index++] = rx3_byte;
       }
@@ -204,9 +212,6 @@ void Procesar_Comandos_WiFi(void) {
 
     char respuesta[100]; // Buffer para armar la respuesta
     
-    for (uint32_t i = 0; i < RX_BUFFER_SIZE; i++){
-      rx3_buffer[i] = rx3_buffer[i+1];
-    }
     printf("\r\nComando recibido\r\n");
     
     // -----------------------------------------------------------
@@ -214,7 +219,7 @@ void Procesar_Comandos_WiFi(void) {
     // -----------------------------------------------------------
 
 
-    if (strstr(rx3_buffer, "ET_TEMP") != NULL) {
+    if (strstr(rx3_buffer, "GET_TEMP") != NULL) {
 
         float temp = room_control_get_temperature(&room_system);
         
@@ -231,7 +236,7 @@ void Procesar_Comandos_WiFi(void) {
     // -----------------------------------------------------------
     // COMANDO 2: GET_STATUS (Pedir estado del sistema)
     // -----------------------------------------------------------
-    else if (strstr(rx3_buffer, "ET_STATUS") != NULL) {
+    else if (strstr(rx3_buffer, "GET_STATUS") != NULL) {
         room_state_t state = room_control_get_state(&room_system);
         int fan = room_control_get_fan_level();
         float temp = room_control_get_temperature(&room_system);
@@ -253,15 +258,15 @@ void Procesar_Comandos_WiFi(void) {
     // -----------------------------------------------------------
     // COMANDO 3: FORCE_FAN:N (Forzar ventilador 0-3)
     // -----------------------------------------------------------
-    else if (strncmp(rx3_buffer, "ORCE_FAN:", 9) == 0) {
+    else if (strncmp(rx3_buffer, "FORCE_FAN:", 10) == 0) {
         // El número está en la posición 10 (después de los dos puntos)
-        int nivel = rx3_buffer[9] - '0'; // Truco ASCII para convertir char a int
-        room_control_force_fan_level(&room_system,(fan_level_t*)nivel);
-            room_control_force_fan_level(&room_system,(fan_level_t*)nivel);
+        int nivel = rx3_buffer[10] - '0'; // Truco ASCII para convertir char a int
+        room_control_force_fan_level(&room_system,nivel);
             
-            sprintf(respuesta, "OK: FAN LEVEL %d\r\n", nivel);
-            HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
-            printf("Accion ejecutada: Fan a %d\r\n", nivel);
+            
+        sprintf(respuesta, "OK: FAN LEVEL %d\r\n", nivel);
+        HAL_UART_Transmit(&huart3, (uint8_t*)respuesta, strlen(respuesta), 100);
+        printf("Accion ejecutada: Fan a %d\r\n", nivel);
         
 
     }
@@ -269,19 +274,18 @@ void Procesar_Comandos_WiFi(void) {
     // -----------------------------------------------------------
     // COMANDO 4: SET_PASS:XXXX (Cambiar contraseña)
     // -----------------------------------------------------------
-    else if (strncmp(rx3_buffer, "ET_PASS:", 8) == 0) {
+    else if (strncmp(rx3_buffer, "SET_PASS:", 9) == 0) {
         // El password empieza en la posición 9
-        char *nuevo_pass = rx3_buffer + 8;
+        char *nuevo_pass = rx3_buffer + 9;
         
         // Validación básica de longitud
-        if (strlen(nuevo_pass) >= 4) {
+        if (strlen(nuevo_pass) == 4) {
              room_control_change_password(&room_system, nuevo_pass);
              
              HAL_UART_Transmit(&huart3, (uint8_t*)"OK: PASS CAMBIADO\r\n", 19, 100);
              printf("Password actualizado remotamente\r\n");
         }
     }
-    
     else {
         printf("Comando desconocido.\r\n");
     }
